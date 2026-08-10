@@ -80,7 +80,16 @@ line.link{stroke:#4a3826;stroke-width:2}line.link.on{stroke:var(--gold);stroke-w
 .dpsbadge.dpsinline{margin-left:0;text-align:left}
 .dpsbadge .n{font:800 26px/1 'Segoe UI';color:var(--gold)}
 .dpsbadge .s{font-size:11px;color:var(--dim)}
-.pd{display:grid;grid-template-columns:1fr 1fr;gap:10px 40px;max-width:900px;margin:0 auto}
+.pd{display:grid;grid-template-columns:1fr auto 1fr;gap:10px 14px;max-width:960px;margin:0 auto;align-items:start}
+.statmid{width:212px;background:linear-gradient(180deg,#1c1610,#120d08);border:1px solid var(--line);border-radius:10px;padding:10px 12px;align-self:stretch}
+.statmid h4{font:600 11px/1;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin:0 0 8px}
+.strow{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2.5px 0;border-bottom:1px solid #1d150d}
+.strow:last-of-type{border-bottom:0}
+.strow .sn{color:var(--txt)}.strow .sv{color:var(--green);font:600 12px/1.4 monospace;white-space:nowrap}
+.strow .sv .pct{color:var(--dim);font:400 10px/1.4 monospace;margin-left:4px}
+.stgrp{font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--gold2);margin:7px 0 2px}
+.stnote{font-size:10px;color:var(--dim);margin-top:8px;line-height:1.45}
+@media(max-width:720px){.pd{grid-template-columns:1fr}.statmid{width:100%}}
 .pdcol{display:flex;flex-direction:column;gap:8px}
 .pdcol.right{align-items:flex-end}
 .slot{display:flex;align-items:center;gap:10px;width:340px;background:linear-gradient(180deg,#1c1610,#120d08);border:1px solid var(--line);border-radius:8px;padding:6px 9px;cursor:default}
@@ -425,6 +434,31 @@ const VERC={Heroic:'#1eaedb',Normal:'#9d9d9d','World Boss':'#e268a8',Ascended:'#
 function verColor(v){if(!v)return '#8a7a66';if(/Mythic/.test(v))return '#ff4d4d';if(/Phase/.test(v))return '#a335ee';return VERC[v]||'#8a7a66';}
 function verShort(v){if(!v)return '';return {Heroic:'HC',Normal:'N','World Boss':'WB',Ascended:'ASC',Vendor:'VEND',Crafted:'CR',Unknown:'?'}[v]||v.replace('Mythic','M').replace('Phase ','P');}
 
+/* ---- gear stat totals (middle of paperdoll) ---- */
+function _flatBonus(t){if(/%|\bchance\b|\bhas a\b|\bhave a\b|\bwhen\b|\bwhile\b|\bafter\b|hitting|dealing|heal|effectively|your next|for \d+\s*sec|reduces|duration of|on (crit|hit|kill)/i.test(t))return {};
+  const st={};[[/attack power by (\d+)/i,'attackPower'],[/critical strike rating by (\d+)/i,'critRating'],[/hit rating by (\d+)/i,'hitRating'],[/haste rating by (\d+)/i,'hasteRating'],[/armor penetration rating by (\d+)/i,'armorPenetration'],[/expertise rating by (\d+)/i,'expertise'],[/Strength by (\d+)/i,'strength'],[/Agility by (\d+)/i,'agility']].forEach(([re,k])=>{const m=t.match(re);if(m)st[k]=+m[1];});return st;}
+function gearTotals(data){const tot={};let setB=false;const add=(k,v)=>{if(v)tot[k]=(tot[k]||0)+v;};
+  for(const k of ORDER){const it=data[k];if(!it||!it.stats)continue;for(const s in it.stats)add(s,it.stats[s]);}
+  const seen=new Set();
+  for(const k of ORDER){const it=data[k];if(!it||!it.set||seen.has(it.set.name))continue;seen.add(it.set.name);
+    (it.set.bonuses||[]).forEach(([th,txt])=>{if(th>it.set.have)return;const b=_flatBonus(txt);for(const s in b){add(s,b[s]);setB=true;}});}
+  return {tot,setB};}
+function statsPanelHtml(data){const {tot,setB}=gearTotals(data);
+  if(!Object.keys(tot).length)return '<h4>Gear totals</h4><div class="tt-dim">no gear</div>';
+  const PCT={critRating:[11,'crit'],hitRating:[10,'hit'],hasteRating:[6.1,'haste'],armorPenetration:[1/0.09,'arpen']};
+  const row=k=>{if(tot[k]==null)return '';let pct='';
+    if(PCT[k]){const p=tot[k]/PCT[k][0];pct=`<span class="pct">${p.toFixed(1)}%${k==='hitRating'&&p>8?' (8% cap)':''}</span>`;}
+    return `<div class="strow"><span class="sn">${statName(k)}</span><span class="sv">+${tot[k]}${pct}</span></div>`;};
+  const used=new Set();const grp=(title,keys)=>{const rows=keys.filter(k=>tot[k]!=null).map(k=>{used.add(k);return row(k);}).join('');
+    return rows?`<div class="stgrp">${title}</div>`+rows:'';};
+  let h='<h4>Gear totals</h4>';
+  h+=grp('Attributes',['strength','agility','stamina','intellect','spirit']);
+  h+=grp('Offense',['attackPower','critRating','hitRating','hasteRating','expertise','armorPenetration']);
+  h+=grp('Defense',['armor','resilience','defenseRating','dodgeRating','parryRating','fireResist','frostResist','natureResist','shadowResist','arcaneResist']);
+  const rest=Object.keys(tot).filter(k=>!used.has(k));
+  if(rest.length)h+=grp('Other',rest);
+  h+=`<div class="stnote">Equipped items${setB?' + active flat set bonuses':''} only — human 60 base (123 Str / 98 Agi), talents &amp; Brutal Shout not included.</div>`;
+  return h;}
 function slotHtml(key,it,emptyMsg){
   if(!it) return `<div class="slot"><div class="ico"></div><div class="meta"><div class="slbl">${SLOT_LABEL[key]}</div><div class="snm" style="color:var(--dim)">${emptyMsg||'&mdash;'}</div></div></div>`;
   const url=iconUrl(it.icon);
@@ -444,7 +478,7 @@ function renderBis(){
     return slotHtml(k,data[k]);
   }).join('');
   document.getElementById('paperdoll').innerHTML=
-    `<div class="pd"><div class="pdcol">${L}</div><div class="pdcol right">${R}</div></div><div class="wpnrow">${W}</div>`;
+    `<div class="pd"><div class="pdcol">${L}</div><div class="statmid">${statsPanelHtml(data)}</div><div class="pdcol right">${R}</div></div><div class="wpnrow">${W}</div>`;
   renderBisList(data);
   renderBreakdown();
   renderTimeline();
