@@ -89,6 +89,9 @@ line.link{stroke:#4a3826;stroke-width:2}line.link.on{stroke:var(--gold);stroke-w
 .strow .sv .pct{color:var(--dim);font:400 10px/1.4 monospace;margin-left:4px}
 .stgrp{font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--gold2);margin:7px 0 2px}
 .stnote{font-size:10px;color:var(--dim);margin-top:8px;line-height:1.45}
+.racesel{width:100%;margin:0 0 6px;background:#0d0906;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:600 12px 'Segoe UI',system-ui;cursor:pointer}
+.racesel:hover{border-color:var(--gold2)}
+.strow.rc .sn{color:#8fb3d9}.strow.rc.off{opacity:.45}
 @media(max-width:720px){.pd{grid-template-columns:1fr}.statmid{width:100%}}
 .pdcol{display:flex;flex-direction:column;gap:8px}
 .pdcol.right{align-items:flex-end}
@@ -422,6 +425,7 @@ const TIERTIP={normal:'Normal raid + Mythic dungeon up to +5 + all always-availa
 const TD=()=>BIS.tiers[bTier]||{};
 const MD=k=>((BIS._meta[k]||{})[bTier])||{};
 let bSpec='brutality', bPhase='1', bMode='st';
+let bRace='Human';
 const SLOT_LABEL={head:'Head',neck:'Neck',shoulder:'Shoulders',back:'Back',chest:'Chest',wrist:'Wrists',hand:'Hands',waist:'Waist',legs:'Legs',feet:'Feet',ring1:'Ring 1',ring2:'Ring 2',trinket1:'Trinket 1',trinket2:'Trinket 2',mainhand:'Main Hand',offhand:'Off Hand',ranged:'Ranged'};
 const LEFT=['head','neck','shoulder','back','chest','wrist'];
 const RIGHT=['hand','waist','legs','feet','ring1','ring2','trinket1','trinket2'];
@@ -443,21 +447,36 @@ function gearTotals(data){const tot={};let setB=false;const add=(k,v)=>{if(v)tot
   for(const k of ORDER){const it=data[k];if(!it||!it.set||seen.has(it.set.name))continue;seen.add(it.set.name);
     (it.set.bonuses||[]).forEach(([th,txt])=>{if(th>it.set.have)return;const b=_flatBonus(txt);for(const s in b){add(s,b[s]);setB=true;}});}
   return {tot,setB};}
+const RACES={ // VERIFIED races only — CoA is a custom server, do NOT assume retail racial stats.
+// To add a race: get its unbuffed lvl-60 Barbarian Str/Agi in-game, add {d:[str-123,agi-98,0,0,0],note:'<racial>'} here.
+ 'Human':{d:[0,0,0,0,0],note:'+3 Expertise with swords & maces',wep:/Sword|Mace/,slot:'mainhand'}};
+const BASE_HUMAN={strength:123,agility:98}; // measured lvl-60 human Barbarian (sim baseline)
 function statsPanelHtml(data){const {tot,setB}=gearTotals(data);
-  if(!Object.keys(tot).length)return '<h4>Gear totals</h4><div class="tt-dim">no gear</div>';
+  const R=RACES[bRace]||RACES['Human'];
+  const names=Object.keys(RACES);if(!RACES[bRace])bRace=names[0];
+  const sel=names.length>1?('<select class="racesel" id="raceSel" title="Race base stats & passives — display only; DPS numbers always sim as Human">'+names.map(r=>`<option${r===bRace?' selected':''}>${r}</option>`).join('')+'</select>'):`<div class="racesel" style="cursor:default" title="Only Human base stats have been measured on CoA — other races need in-game data">Race: ${names[0]}</div>`;
   const PCT={critRating:[11,'crit'],hitRating:[10,'hit'],hasteRating:[6.1,'haste'],armorPenetration:[1/0.09,'arpen']};
-  const row=k=>{if(tot[k]==null)return '';let pct='';
-    if(PCT[k]){const p=tot[k]/PCT[k][0];pct=`<span class="pct">${p.toFixed(1)}%${k==='hitRating'&&p>8?' (8% cap)':''}</span>`;}
+  const BASEI={strength:0,agility:1};
+  const row=k=>{let pct='';
+    if(PCT[k]&&tot[k]!=null){const p=tot[k]/PCT[k][0];pct=`<span class="pct">${p.toFixed(1)}%${k==='hitRating'&&p>8?' (8% cap)':''}</span>`;}
+    if(BASEI[k]!=null){const base=BASE_HUMAN[k]+R.d[BASEI[k]],g=tot[k]||0;
+      return `<div class="strow"><span class="sn">${statName(k)}</span><span class="sv">${base+g}<span class="pct">(${base}+${g})</span></span></div>`;}
+    if(tot[k]==null)return '';
     return `<div class="strow"><span class="sn">${statName(k)}</span><span class="sv">+${tot[k]}${pct}</span></div>`;};
-  const used=new Set();const grp=(title,keys)=>{const rows=keys.filter(k=>tot[k]!=null).map(k=>{used.add(k);return row(k);}).join('');
+  const used=new Set(['strength','agility']);
+  const grp=(title,keys)=>{const rows=keys.filter(k=>BASEI[k]!=null||tot[k]!=null).map(k=>{used.add(k);return row(k);}).join('');
     return rows?`<div class="stgrp">${title}</div>`+rows:'';};
-  let h='<h4>Gear totals</h4>';
+  let h='<h4>Character stats</h4>'+sel;
   h+=grp('Attributes',['strength','agility','stamina','intellect','spirit']);
   h+=grp('Offense',['attackPower','critRating','hitRating','hasteRating','expertise','armorPenetration']);
   h+=grp('Defense',['armor','resilience','defenseRating','dodgeRating','parryRating','fireResist','frostResist','natureResist','shadowResist','arcaneResist']);
   const rest=Object.keys(tot).filter(k=>!used.has(k));
   if(rest.length)h+=grp('Other',rest);
-  h+=`<div class="stnote">Equipped items${setB?' + active flat set bonuses':''} only — human 60 base (123 Str / 98 Agi), talents &amp; Brutal Shout not included.</div>`;
+  let on=true;
+  if(R.wep){const it=data[R.slot];on=!!(it&&R.wep.test(it.type||''));}
+  h+=`<div class="stgrp">Racial</div><div class="strow rc${on?'':' off'}"><span class="sn">${R.note}</span></div>`;
+  if(R.wep&&!on)h+=`<div class="stnote" style="margin-top:2px">inactive — no matching weapon equipped</div>`;
+  h+=`<div class="stnote">Str/Agi = race base + equipped gear${setB?' + active flat set bonuses':''}; other rows are gear-only. Base = measured lvl-60 Human Barbarian (123 Str / 98 Agi). Other races aren't shown because CoA is a custom server and their base stats are unverified. Talents &amp; Brutal Shout excluded; DPS numbers always sim as Human.</div>`;
   return h;}
 function slotHtml(key,it,emptyMsg){
   if(!it) return `<div class="slot"><div class="ico"></div><div class="meta"><div class="slbl">${SLOT_LABEL[key]}</div><div class="snm" style="color:var(--dim)">${emptyMsg||'&mdash;'}</div></div></div>`;
@@ -492,6 +511,8 @@ function renderBis(){
   document.querySelectorAll('#modePills .pill').forEach(p=>p.classList.toggle('active',p.dataset.m===bMode));
   document.querySelectorAll('#tierPills .pill').forEach(p=>p.classList.toggle('active',p.dataset.t===bTier));
   wireItemTips();
+  const rs=document.getElementById('raceSel');
+  if(rs)rs.onchange=()=>{bRace=rs.value;renderBis();};
 }
 function altsHtml(alts){
   if(!alts||!alts.length)return '';
